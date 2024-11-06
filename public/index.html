@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Web AI</title>
+    <link rel="icon" type="image/png" href="https://web.whatsapp.com/favicon.png"/>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Segoe UI,Helvetica Neue,Helvetica,Lucida Grande,Arial,Ubuntu,Cantarell,Fira Sans,sans-serif;
+            background-color: #111b21;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .header {
+            background-color: #00a884;
+            height: 222px;
+            width: 100%;
+            position: fixed;
+            top: 0;
+        }
+        .main-container {
+            position: relative;
+            margin: 0 auto;
+            max-width: 1000px;
+            padding: 20px;
+            z-index: 2;
+        }
+        .login-wrapper {
+            background: #ffffff;
+            border-radius: 3px;
+            box-shadow: 0 17px 50px 0 rgba(0,0,0,.19);
+            padding: 64px 60px;
+            position: relative;
+            margin-top: 40px;
+        }
+        .title {
+            color: #41525d;
+            font-size: 28px;
+            font-weight: 300;
+            margin-bottom: 28px;
+            text-align: center;
+        }
+        .qr-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .qr-container img {
+            width: 264px;
+            height: 264px;
+            border-radius: 3px;
+        }
+        .instructions {
+            color: #41525d;
+            font-size: 16px;
+            line-height: 24px;
+            margin-top: 28px;
+        }
+        .instructions ol {
+            margin: 0;
+            padding-left: 24px;
+        }
+        .instructions li {
+            margin: 8px 0;
+        }
+        .status-bar {
+            text-align: center;
+            padding: 8px;
+            margin-top: 16px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .status-bar.connected {
+            background: #dcf8c6;
+            color: #075e54;
+        }
+        .status-bar.disconnected {
+            background: #fff5f5;
+            color: #c53030;
+        }
+        .status-bar.waiting {
+            background: #f7f8fa;
+            color: #41525d;
+        }
+        .logo {
+            width: 39px;
+            height: 39px;
+            margin: 0 auto 28px;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="header"></div>
+    <div class="main-container">
+        <div class="login-wrapper">
+            <img src="https://web.whatsapp.com/img/whatsapp-logo.svg" alt="WhatsApp Logo" class="logo">
+            <h1 class="title">WhatsApp Web AI</h1>
+            <div id="status" class="status-bar waiting">Initializing...</div>
+            <div class="qr-container" id="qr-container">
+                <div class="instructions">
+                    <ol>
+                        <li>Open WhatsApp on your phone</li>
+                        <li>Tap Menu <span>⋮</span> or Settings <span>⚙️</span> and select WhatsApp Web</li>
+                        <li>Point your phone to this screen to capture the code</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class WhatsAppWebClient {
+            constructor() {
+                this.sessionKey = 'whatsapp_session';
+                this.connect();
+            }
+
+            connect() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                this.ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
+                // Try to restore session
+                const savedSession = localStorage.getItem(this.sessionKey);
+                if (savedSession) {
+                    this.ws.addEventListener('open', () => {
+                        this.ws.send(JSON.stringify({
+                            type: 'restore_session',
+                            session: savedSession
+                        }));
+                    });
+                }
+
+                this.setupEventListeners();
+            }
+
+            setupEventListeners() {
+                this.ws.onmessage = this.handleMessage.bind(this);
+                this.ws.onclose = this.handleClose.bind(this);
+                this.ws.onerror = this.handleError.bind(this);
+            }
+
+            handleMessage(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    switch(data.type) {
+                        case 'qr':
+                            this.updateQRCode(data.data);
+                            break;
+                        case 'status':
+                            this.updateStatus(data.status);
+                            if (data.status === 'connected' && data.session) {
+                                localStorage.setItem(this.sessionKey, data.session);
+                            }
+                            break;
+                    }
+                } catch (error) {
+                    console.error('WebSocket message error:', error);
+                }
+            }
+
+            handleClose() {
+                this.updateStatus('disconnected');
+                setTimeout(() => this.connect(), 5000);
+            }
+
+            handleError(error) {
+                console.error('WebSocket error:', error);
+                this.updateStatus('error');
+            }
+
+            updateQRCode(qrData) {
+                const container = document.getElementById('qr-container');
+                container.innerHTML = `<img src="${qrData}" alt="QR Code">`;
+                this.updateStatus('waiting');
+            }
+
+            updateStatus(status) {
+                const statusElement = document.getElementById('status');
+                statusElement.className = `status-bar ${status}`;
+
+                const messages = {
+                    connected: '✓ Connected',
+                    disconnected: 'Disconnected from WhatsApp',
+                    waiting: 'Waiting for you to scan the QR code',
+                    error: 'Connection Error'
+                };
+
+                statusElement.textContent = messages[status] || status;
+            }
+        }
+
+        // Initialize WhatsApp Web client
+        new WhatsAppWebClient();
+    </script>
+</body>
+</html>
